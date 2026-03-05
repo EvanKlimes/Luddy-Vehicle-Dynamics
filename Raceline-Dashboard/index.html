@@ -1,0 +1,236 @@
+<!--
+Slip Angle & Raceline Control Dashboard
+Run locally: open this file in a browser (index.html).
+If you prefer React tooling, this is plain vanilla HTML/JS for simplicity and offline use.
+
+Sample: open index.html in Chrome/Firefox. Drag/drop a CSV in Upload.
+--> 
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Slip Angle & Raceline Control Dashboard</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app">
+    <aside id="sidebar">
+      <div class="logo">SlipAngle Dashboard</div>
+      <nav>
+        <button data-tab="overview" class="active">Overview</button>
+        <button data-tab="upload">Upload</button>
+        <button data-tab="raceline">Raceline</button>
+        <button data-tab="slip">Slip / vy</button>
+        <button data-tab="tire">Tire Params</button>
+        <button data-tab="gps">GPS</button>
+        <button data-tab="controller">Controller</button>
+        <button data-tab="settings">Settings</button>
+      </nav>
+    </aside>
+
+    <header id="topbar">
+      <div id="progressWrap">
+        <div id="progressBarWrap"><div id="progressBar"></div></div>
+        <div id="progressLabel" style="color:var(--muted);font-size:12px;margin-left:8px"></div>
+      </div>
+
+      <!-- STATUS MOVED INTO TOPBAR (RIGHT SIDE) -->
+      <div id="status">
+        <span id="dataset">No dataset</span>
+        <span id="lapinfo"></span>
+        <span id="deviationSummary"></span>
+        <span id="gpsDrops"></span>
+      </div>
+    </header>
+
+    <div id="cover" class="cover">
+      <img class="cover-img" src="lantao-cover.jpg" alt="cover" />
+    </div>
+
+    <div id="actions">
+      <button id="exportJson">Export JSON</button>
+      <button id="exportPng">Export PNG</button>
+      <button id="diagBtn">Diagnostics</button>
+      <button id="applyMapBtn">Apply Mappings</button>
+    </div>
+
+    <main id="content">
+      <section id="overview" class="tabpane active">
+        <h2>Overview / Story</h2>
+        <div class="col">
+          <div class="card">
+            <h3>Why slip angle matters</h3>
+            <p>This dashboard explains visually why a slip angle sensor helps Model Predictive Control (MPC), state estimation, and tire parameter identification. MPC relies on physics models; the single-track (bicycle) dynamic model needs lateral velocity (vy) and slip to predict forces. A direct slip measurement reduces vy uncertainty and improves tire model fits (Pacejka-style).</p>
+          </div>
+        </div>
+
+        <!-- Recent uploads strip spanning lower half of the overview -->
+        <div id="recentUploadsWrap">
+          <h3>Recent Sessions</h3>
+          <div id="recentUploads" class="recent-strip">
+            <!-- Filled dynamically by the app.js using state.files if available -->
+          </div>
+        </div>
+      </section>
+
+      <section id="upload" class="tabpane">
+        <h2>Data Upload & Session Setup</h2>
+        <div class="card">
+          <div id="uploader" class="uploader">
+            <div id="dropzone">Drag & drop one or more CSVs here<br>or <input type="file" id="fileInput" accept=".csv" multiple/></div>
+          </div>
+          <div id="mapping" class="mapping"></div>
+          <div id="filePanels" class="card" style="margin-top:8px;padding:8px;max-height:240px;overflow:auto"></div>
+        </div>
+      </section>
+
+      <section id="raceline" class="tabpane">
+        <h2>Raceline Tracking</h2>
+        <div class="card">
+              <div id="mapWrap">
+            <div id="mapControls">
+              <button id="setStartBtn">Set Start Line</button>
+              <label style="color:var(--muted)">Lap: <select id="lapSelect"><option value="all">All</option></select></label>
+              <label style="color:var(--muted);display:flex;align-items:center;gap:6px"><input type="checkbox" id="showAllLaps" checked/> Show all laps</label>
+              <div id="lapInfo" style="color:var(--muted);margin-left:12px"></div>
+              <div id="lapControls" style="margin-left:12px; display:inline-flex; gap:8px; align-items:center;">
+                <label style="color:var(--muted)">minLapTime(s): <input id="minLapTimeInput" type="number" step="0.1" value="6.0" style="width:80px;margin-left:6px"/></label>
+                <label style="color:var(--muted)">forwardSpeed(m/s): <input id="forwardSpeedInput" type="number" step="0.05" value="0.2" style="width:80px;margin-left:6px"/></label>
+                <label style="color:var(--muted);display:flex;align-items:center;gap:6px"><input id="showRef" type="checkbox" checked/> Show reference</label>
+                <button id="recomputeLapsBtn" style="padding:6px 8px">Recompute Laps</button>
+              </div>
+            </div>
+            <svg id="map" viewBox="0 0 800 400"></svg>
+          </div>
+          <div id="lapListWrap" style="margin-top:12px;max-height:360px;overflow:auto">
+            <div id="lapList"></div>
+          </div>
+          <canvas id="deviationChart" width="800" height="150"></canvas>
+          <div id="racelineMetrics" class="metrics"></div>
+        </div>
+      </section>
+
+      <section id="slip" class="tabpane">
+        <h2>Slip Angle & vy Estimation</h2>
+        <div class="card">
+          <div class="modes">
+            <label><input type="radio" name="mode" value="basic" checked> Basic</label>
+            <label><input type="radio" name="mode" value="dynamic"> Dynamic bicycle</label>
+            <label><input type="radio" name="mode" value="sensor"> Sensor (sim)</label>
+          </div>
+          <div id="slipWrap">
+            <div id="slipGrid">
+              <div class="cell"><h4>Measured β (deg)</h4><canvas id="slipBeta" width="680" height="240"></canvas></div>
+              <div class="cell"><h4>Predicted β (deg)</h4><canvas id="slipPred" width="680" height="240"></canvas></div>
+              <div class="cell"><h4>vy (m/s)</h4><canvas id="slipVy" width="680" height="240"></canvas></div>
+              <div class="cell"><h4>α_f / α_r (deg)</h4><canvas id="slipAlpha" width="680" height="240"></canvas></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="tire" class="tabpane">
+        <h2>Tire Model / Parameter ID</h2>
+        <div class="card">
+          <div id="tireControls">
+            <label>Mass (kg): <input id="mass" type="number" value="1500"></label>
+            <label>Wheelbase (m): <input id="wheelbase" type="number" value="2.5" step="0.1"></label>
+          </div>
+          <canvas id="tireFit" width="800" height="220"></canvas>
+          <div id="tireReport" class="metrics"></div>
+        </div>
+      </section>
+
+      <section id="gps" class="tabpane">
+        <h2>GPS Dropout / Bridge Detection</h2>
+        <div class="card">
+          <canvas id="gpsChart" width="800" height="150"></canvas>
+          <div id="gpsReport" class="metrics"></div>
+        </div>
+      </section>
+
+      <section id="controller" class="tabpane">
+        <h2>Controller Readiness</h2>
+        <div class="card">
+          <div id="controllerStatus"></div>
+        </div>
+      </section>
+
+      <section id="settings" class="tabpane">
+        <h2>Settings</h2>
+        <div class="card">
+          <label>Deviation threshold (m): <input id="devThresh" type="number" value="0.4" step="0.05"></label>
+          <label>Slip threshold (deg): <input id="slipThresh" type="number" value="6" step="0.5"></label>
+        </div>
+      </section>
+    </main>
+  </div>
+  
+
+  <script>
+    // Diagnostic: log the fallback background image element and load/errors
+    (function(){
+      window.addEventListener('DOMContentLoaded', ()=>{
+        const img = document.querySelector('.vis-bg-img');
+        console.log('DIAG: vis-bg-img element present?', !!img);
+        if(img){
+          console.log('DIAG: vis-bg-img.src =', img.src);
+          if(img.complete){
+            console.log('DIAG: vis-bg-img complete, naturalWidth=', img.naturalWidth, 'naturalHeight=', img.naturalHeight);
+          }
+          img.addEventListener('load', ()=>console.log('DIAG: vis-bg-img loaded', img.naturalWidth, img.naturalHeight));
+          img.addEventListener('error', (ev)=>console.error('DIAG: vis-bg-img failed to load', ev));
+        }
+        const bg = document.querySelector('.vis-bg');
+        console.log('DIAG: .vis-bg exists?', !!bg);
+        try{
+          const wrap = document.querySelector('#mapWrap');
+          const svgEl = document.querySelector('#map');
+          console.log('DIAG: #mapWrap rect', wrap && wrap.getBoundingClientRect());
+          const rWrap = wrap && wrap.getBoundingClientRect();
+          const rImg = img && img.getBoundingClientRect();
+          const rMap = svgEl && svgEl.getBoundingClientRect();
+          try{
+            console.log('DIAG: #mapWrap rect (json)', rWrap? JSON.stringify({w:rWrap.width,h:rWrap.height,x:rWrap.x,y:rWrap.y}): null );
+            console.log('DIAG: .vis-bg-img rect (json)', rImg? JSON.stringify({w:rImg.width,h:rImg.height,x:rImg.x,y:rImg.y}): null );
+            console.log('DIAG: #map rect (json)', rMap? JSON.stringify({w:rMap.width,h:rMap.height,x:rMap.x,y:rMap.y}): null );
+            // element at center of #mapWrap
+            if(rWrap){
+              const cx = Math.round(rWrap.x + rWrap.width/2);
+              const cy = Math.round(rWrap.y + rWrap.height/2);
+              const topEl = document.elementFromPoint(cx, cy);
+              console.log('DIAG: element at map center', topEl && topEl.tagName, topEl && (topEl.className || topEl.id));
+            }
+          }catch(e){ console.error('DIAG: JSON rect logging failed', e); }
+          if(img){ const cs = getComputedStyle(img); console.log('DIAG: img computed style zIndex,display,visibility,opacity', cs.zIndex, cs.display, cs.visibility, cs.opacity); }
+          if(svgEl){ const cs2 = getComputedStyle(svgEl); console.log('DIAG: svg computed style zIndex,display,visibility,opacity', cs2.zIndex, cs2.display, cs2.visibility, cs2.opacity); }
+        }catch(e){ console.error('DIAG: bounding rect check failed', e); }
+      });
+    })();
+  </script>
+
+  <script>
+    (function(){
+      function adjustCover(){
+        const settingsBtn = document.querySelector('button[data-tab="settings"]');
+        const cover = document.querySelector('.cover');
+        const img = document.querySelector('.cover-img');
+        if(!settingsBtn || !cover) return;
+        const coverTop = cover.getBoundingClientRect().top;
+        const settingsBottom = settingsBtn.getBoundingClientRect().bottom;
+        // Compute desired container height so the image bottom lines up with Settings bottom
+        let desiredH = Math.max(120, Math.round(settingsBottom - coverTop));
+        cover.style.height = desiredH + 'px';
+        if(img) img.style.height = '100%';
+      }
+      window.addEventListener('DOMContentLoaded', adjustCover);
+      window.addEventListener('resize', adjustCover);
+      // Also run shortly after load in case fonts/images shift layout
+      window.addEventListener('load', ()=>setTimeout(adjustCover, 120));
+    })();
+  </script>
+
+  <script src="app.js"></script>
+</body>
+</html>
